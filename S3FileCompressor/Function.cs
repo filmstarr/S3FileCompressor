@@ -17,23 +17,23 @@ namespace S3FileCompressor
     public class Function
     {
         private const string _ZippedFileExtension = ".gz";
-        private const string _FileReadSizeVariableName = "FilePartReadSizeMB";
+        private const string _FilePartReadSizeVariableName = "FilePartReadSizeMB";
         private const string _MinimumUploadSizeVariableName = "MinimumUploadSizeMB";
 
         private readonly int MB = (int)Math.Pow(2, 20);
-        private readonly int DefaultFileReadSizeMB = 100;
+        private readonly int DefaultFilePartReadSizeMB = 100;
         private readonly int DefaultMinimumUploadSizeMB = 100;
 
-        private int FileReadSize
+        private int FilePartReadSize
         {
             get
             {
-                var environmentVariableString = Environment.GetEnvironmentVariable(_FileReadSizeVariableName);
+                var environmentVariableString = Environment.GetEnvironmentVariable(_FilePartReadSizeVariableName);
                 if (int.TryParse(environmentVariableString, out int value))
                 {
                     return value * MB;
                 }
-                return this.DefaultFileReadSizeMB * MB;
+                return this.DefaultFilePartReadSizeMB * MB;
             }
         }
 
@@ -89,56 +89,63 @@ namespace S3FileCompressor
 
             try
             {
-                context.Logger.LogLine("Starting function");
+                context.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3Event.Object.Key}");
                 var response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3Event.Object.Key);
-                context.Logger.LogLine("Really Starting function");
-                await CompressFile(s3Event.Bucket.Name, s3Event.Object.Key);
+                await CompressFile(context, s3Event.Bucket.Name, s3Event.Object.Key);
                 return response.Headers.ContentType;
             }
             catch(Exception e)
             {
-                context.Logger.LogLine($"Error getting object {s3Event.Object.Key} from bucket {s3Event.Bucket.Name}. Make sure they exist and your bucket is in the same region as this function.");
+                context.LogLineWithId($"Error compressing object {s3Event.Object.Key} in bucket {s3Event.Bucket.Name}");
                 context.Logger.LogLine(e.Message);
                 context.Logger.LogLine(e.StackTrace);
                 throw;
             }
         }
 
-        public async Task CompressFile(string bucketName, string key)
+        private static void Log(ILambdaContext context, string message)
         {
+            context.Logger.LogLine($"{message} RequestId: {context.AwsRequestId}");
+        }
+
+        private async Task CompressFile(ILambdaContext context, string bucketName, string key)
+        {
+            //Check if file is already zipped
             if (key.EndsWith(_ZippedFileExtension))
             {
-                Console.WriteLine($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete.");
+                context.LogLineWithId($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete");
                 return;
             }
 
-            var zippedKey = key + _ZippedFileExtension;
-
+            //Retrieve input stream
             var obj = await S3Client.GetObjectAsync(new GetObjectRequest { BucketName = bucketName, Key = key });
-
             var inputStream = obj.ResponseStream;
+            context.LogLineWithId("Object response stream obtained");
 
-            // Initiate multipart upload
-            InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest { BucketName = bucketName, Key = zippedKey };
-            InitiateMultipartUploadResponse initResponse = await S3Client.InitiateMultipartUploadAsync(initRequest);
-
+            //Initiate multipart upload
+            var zippedKey = key + _ZippedFileExtension;
+            InitiateMultipartUploadRequest uploadRequest = new InitiateMultipartUploadRequest { BucketName = bucketName, Key = zippedKey };
+            InitiateMultipartUploadResponse uploadResponse = await S3Client.InitiateMultipartUploadAsync(uploadRequest);
             var uploadPartResponses = new List<PartETag>();
+            context.LogLineWithId("Upload initiated");
 
             var partNumber = 1;
-
-            var fileReadSize = this.FileReadSize;
+            var filePartReadSize = this.FilePartReadSize;
             var minimumUploadSize = this.MinimumUploadSize;
-
             var streamEnded = false;
+
+            //Process input file
             while (!streamEnded)
             {
                 using (MemoryStream memoryStream = new MemoryStream())
                 {
+                    //Read chunks of the input file, compressing as we go, until we hit the minimum upload size or the end of the stream
                     using (GZipStream zipStream = new GZipStream(memoryStream, CompressionLevel.Fastest, true))
                     {
                         while (memoryStream.Length < minimumUploadSize)
                         {
-                            var bytesCopied = CopyBytes(fileReadSize, inputStream, zipStream);
+                            //Copy a set number of bytes from the input stream to the compressed memory stream
+                            var bytesCopied = CopyBytes(filePartReadSize, inputStream, zipStream);
                             if (bytesCopied == 0)
                             {
                                 streamEnded = true;
@@ -146,56 +153,36 @@ namespace S3FileCompressor
                             }
                         }
                     }
+                    context.LogLineWithId($"Part {partNumber} read and compressed");
 
+                    //Check to make sure that we have actually read something in before proceeding
                     if (memoryStream.Length == 0)
                     {
                         break;
                     }
 
+                    //Upload memory stream to S3
                     memoryStream.Position = 0;
-
-                    UploadPartRequest uploadRequest;
-                    //Upload part
-                    if (!streamEnded)
-                    {
-                        uploadRequest = new UploadPartRequest
-                        {
-                            BucketName = bucketName,
-                            Key = zippedKey,
-                            UploadId = initResponse.UploadId,
-                            PartNumber = partNumber,
-                            PartSize = memoryStream.Length,
-                            InputStream = memoryStream
-                        };
-                    }
-                    else
-                    {
-                        uploadRequest = new UploadPartRequest
-                        {
-                            BucketName = bucketName,
-                            Key = zippedKey,
-                            UploadId = initResponse.UploadId,
-                            PartNumber = partNumber,
-                            InputStream = memoryStream,
-                        };
-
-                    }
-
-                    UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadRequest);
+                    UploadPartRequest uploadPartRequest = GetUploadPartRequest(bucketName, zippedKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
+                    UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadPartRequest);
                     uploadPartResponses.Add(new PartETag { ETag = uploadPartResponse.ETag, PartNumber = partNumber });
+                    context.LogLineWithId($"Part {partNumber} uploaded.");
 
                     partNumber++;
                 }
             }
 
+            //Complete multipart upload request
+            context.LogLineWithId($"Completing upload request");
             CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest
             {
                 BucketName = bucketName,
                 Key = zippedKey,
-                UploadId = initResponse.UploadId,
+                UploadId = uploadResponse.UploadId,
                 PartETags = uploadPartResponses
             };
             CompleteMultipartUploadResponse compResponse = await S3Client.CompleteMultipartUploadAsync(compRequest);
+            context.LogLineWithId($"Upload request completed");
 
             inputStream.Dispose();
         }
@@ -211,6 +198,37 @@ namespace S3FileCompressor
                 toStream.Write(buffer, 0, read);
             }
             return bytesRead;
+        }
+
+        private static UploadPartRequest GetUploadPartRequest(string bucketName, string zippedKey, string uploadId, int partNumber, bool lastFilePart, MemoryStream inputStream)
+        {
+            UploadPartRequest uploadPartRequest;
+            if (!lastFilePart)
+            {
+                uploadPartRequest = new UploadPartRequest
+                {
+                    BucketName = bucketName,
+                    Key = zippedKey,
+                    UploadId = uploadId,
+                    PartNumber = partNumber,
+                    PartSize = inputStream.Length,
+                    InputStream = inputStream
+                };
+            }
+            else
+            {
+                uploadPartRequest = new UploadPartRequest
+                {
+                    BucketName = bucketName,
+                    Key = zippedKey,
+                    UploadId = uploadId,
+                    PartNumber = partNumber,
+                    InputStream = inputStream,
+                };
+
+            }
+
+            return uploadPartRequest;
         }
     }
 }
