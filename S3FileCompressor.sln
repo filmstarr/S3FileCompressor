@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.26228.4
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "S3FileCompressor", "S3FileCompressor\S3FileCompressor.csproj", "{78AFD013-61DC-44E1-8C03-24D7CDA4F03E}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "S3FileCompressor.Tests", "S3FileCompressor.Tests\S3FileCompressor.Tests.csproj", "{96561F0E-12AC-4B37-8058-2F96950C4327}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{78AFD013-61DC-44E1-8C03-24D7CDA4F03E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{78AFD013-61DC-44E1-8C03-24D7CDA4F03E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{78AFD013-61DC-44E1-8C03-24D7CDA4F03E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{78AFD013-61DC-44E1-8C03-24D7CDA4F03E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{96561F0E-12AC-4B37-8058-2F96950C4327}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{96561F0E-12AC-4B37-8058-2F96950C4327}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{96561F0E-12AC-4B37-8058-2F96950C4327}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{96561F0E-12AC-4B37-8058-2F96950C4327}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
