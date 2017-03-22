@@ -17,8 +17,41 @@ namespace S3FileCompressor
     public class Function
     {
         private const string _ZippedFileExtension = ".gz";
+        private const string _FileReadSizeVariableName = "FilePartReadSizeMB";
+        private const string _MinimumUploadSizeVariableName = "MinimumUploadSizeMB";
 
-        IAmazonS3 S3Client { get; set; }
+        private readonly int MB = (int)Math.Pow(2, 20);
+        private readonly int DefaultFileReadSizeMB = 100;
+        private readonly int DefaultMinimumUploadSizeMB = 100;
+
+        private int FileReadSize
+        {
+            get
+            {
+                var environmentVariableString = Environment.GetEnvironmentVariable(_FileReadSizeVariableName);
+                if (int.TryParse(environmentVariableString, out int value))
+                {
+                    return value * MB;
+                }
+                return this.DefaultFileReadSizeMB * MB;
+            }
+        }
+
+        private int MinimumUploadSize
+        {
+            get
+            {
+                var environmentVariableString = Environment.GetEnvironmentVariable(_MinimumUploadSizeVariableName);
+                if (int.TryParse(environmentVariableString, out int value))
+                {
+                    return Math.Max(value, 5) * MB;
+                }
+                return this.DefaultMinimumUploadSizeMB * MB;
+            }
+        }
+
+
+        private IAmazonS3 S3Client { get; set; }
 
         /// <summary>
         /// Default constructor. This constructor is used by Lambda to construct the instance. When invoked in a Lambda environment
@@ -85,8 +118,6 @@ namespace S3FileCompressor
 
             var inputStream = obj.ResponseStream;
 
-            var MB = (int)Math.Pow(2, 20);
-
             // Initiate multipart upload
             InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest { BucketName = bucketName, Key = zippedKey };
             InitiateMultipartUploadResponse initResponse = await S3Client.InitiateMultipartUploadAsync(initRequest);
@@ -95,8 +126,8 @@ namespace S3FileCompressor
 
             var partNumber = 1;
 
-            var readChunkSize = 100 * MB;
-            var minUploadSize = 100 * MB;
+            var fileReadSize = this.FileReadSize;
+            var minimumUploadSize = this.MinimumUploadSize;
 
             var streamEnded = false;
             while (!streamEnded)
@@ -105,9 +136,9 @@ namespace S3FileCompressor
                 {
                     using (GZipStream zipStream = new GZipStream(memoryStream, CompressionLevel.Fastest, true))
                     {
-                        while (memoryStream.Length < minUploadSize)
+                        while (memoryStream.Length < minimumUploadSize)
                         {
-                            var bytesCopied = CopyBytes(readChunkSize, inputStream, zipStream);
+                            var bytesCopied = CopyBytes(fileReadSize, inputStream, zipStream);
                             if (bytesCopied == 0)
                             {
                                 streamEnded = true;

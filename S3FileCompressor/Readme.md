@@ -1,11 +1,9 @@
-# AWS Lambda Simple S3 Function Project
+# AWS Lambda S3FileCompressor Project
 
-This starter project consists of:
+This project consists of:
 * Function.cs - class file containing a class with a single function handler method
 * aws-lambda-tools-defaults.json - default argument settings for use with Visual Studio and command line deployment tools for AWS
 * project.json - .NET Core project file with build and tool declarations for the Amazon.Lambda.Tools Nuget package
-
-You may also have a test project depending on the options selected.
 
 The generated function handler responds to events on an Amazon S3 bucket. The handler receives the bucket and object key details in an S3Event instance and returns the content type of the object as the function output. Replace the body of this method, and parameters, to suit your needs.
 
@@ -31,18 +29,18 @@ Once you have edited your function you can use the following command lines to bu
 
 Restore dependencies
 ```
-    cd "SimpleS3Function"
+    cd "S3FileCompressor"
     dotnet restore
 ```
 
 Execute unit tests
 ```
-    cd "SimpleS3Function/test/SimpleS3Function.Tests"
+    cd "S3FileCompressor/test/S3FileCompressor.Tests"
     dotnet test
 ```
 
 Deploy function to AWS Lambda
 ```
-    cd "SimpleS3Function/src/SimpleS3Function"
+    cd "S3FileCompressor/src/S3FileCompressor"
     dotnet lambda deploy-function
 ```
