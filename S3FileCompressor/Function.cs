@@ -17,39 +17,9 @@ namespace S3FileCompressor
     public class Function
     {
         private const string _ZippedFileExtension = ".gz";
-        private const string _FilePartReadSizeVariableName = "FilePartReadSizeMB";
-        private const string _MinimumUploadSizeVariableName = "MinimumUploadSizeMB";
 
         private readonly int MB = (int)Math.Pow(2, 20);
-        private readonly int DefaultFilePartReadSizeMB = 100;
-        private readonly int DefaultMinimumUploadSizeMB = 100;
-
-        private int FilePartReadSize
-        {
-            get
-            {
-                var environmentVariableString = Environment.GetEnvironmentVariable(_FilePartReadSizeVariableName);
-                if (int.TryParse(environmentVariableString, out int value))
-                {
-                    return value * MB;
-                }
-                return this.DefaultFilePartReadSizeMB * MB;
-            }
-        }
-
-        private int MinimumUploadSize
-        {
-            get
-            {
-                var environmentVariableString = Environment.GetEnvironmentVariable(_MinimumUploadSizeVariableName);
-                if (int.TryParse(environmentVariableString, out int value))
-                {
-                    return Math.Max(value, 5) * MB;
-                }
-                return this.DefaultMinimumUploadSizeMB * MB;
-            }
-        }
-
+        private readonly S3FileCompressorVariables variables = new S3FileCompressorVariables();
 
         private IAmazonS3 S3Client { get; set; }
 
@@ -60,7 +30,7 @@ namespace S3FileCompressor
         /// </summary>
         public Function()
         {
-            S3Client = new AmazonS3Client();
+            this.S3Client = new AmazonS3Client();
         }
 
         /// <summary>
@@ -108,30 +78,31 @@ namespace S3FileCompressor
             context.Logger.LogLine($"{message} RequestId: {context.AwsRequestId}");
         }
 
-        private async Task CompressFile(ILambdaContext context, string bucketName, string key)
+        private async Task CompressFile(ILambdaContext context, string inputBucketName, string inputKey)
         {
             //Check if file is already zipped
-            if (key.EndsWith(_ZippedFileExtension))
+            if (inputKey.EndsWith(_ZippedFileExtension))
             {
                 context.LogLineWithId($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete");
                 return;
             }
 
             //Retrieve input stream
-            var obj = await S3Client.GetObjectAsync(new GetObjectRequest { BucketName = bucketName, Key = key });
+            var obj = await S3Client.GetObjectAsync(new GetObjectRequest { BucketName = inputBucketName, Key = inputKey });
             var inputStream = obj.ResponseStream;
             context.LogLineWithId("Object response stream obtained");
 
             //Initiate multipart upload
-            var zippedKey = key + _ZippedFileExtension;
-            InitiateMultipartUploadRequest uploadRequest = new InitiateMultipartUploadRequest { BucketName = bucketName, Key = zippedKey };
+            string outputBucketName = !string.IsNullOrEmpty(this.variables.OutputBucket) ? this.variables.OutputBucket : inputBucketName;
+            string outputKey = this.GetOutputKey(inputKey);
+            InitiateMultipartUploadRequest uploadRequest = new InitiateMultipartUploadRequest { BucketName = outputBucketName, Key = outputKey };
             InitiateMultipartUploadResponse uploadResponse = await S3Client.InitiateMultipartUploadAsync(uploadRequest);
             var uploadPartResponses = new List<PartETag>();
-            context.LogLineWithId("Upload initiated");
+            context.LogLineWithId($"Upload initiated. Output object: {outputBucketName}/{outputKey}");
 
             var partNumber = 1;
-            var filePartReadSize = this.FilePartReadSize;
-            var minimumUploadSize = this.MinimumUploadSize;
+            var filePartReadSize = this.variables.FilePartReadSize;
+            var minimumUploadSize = this.variables.MinimumUploadSize;
             var streamEnded = false;
 
             //Process input file
@@ -163,7 +134,7 @@ namespace S3FileCompressor
 
                     //Upload memory stream to S3
                     memoryStream.Position = 0;
-                    UploadPartRequest uploadPartRequest = GetUploadPartRequest(bucketName, zippedKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
+                    UploadPartRequest uploadPartRequest = GetUploadPartRequest(outputBucketName, outputKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
                     UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadPartRequest);
                     uploadPartResponses.Add(new PartETag { ETag = uploadPartResponse.ETag, PartNumber = partNumber });
                     context.LogLineWithId($"Part {partNumber} uploaded.");
@@ -176,8 +147,8 @@ namespace S3FileCompressor
             context.LogLineWithId($"Completing upload request");
             CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest
             {
-                BucketName = bucketName,
-                Key = zippedKey,
+                BucketName = outputBucketName,
+                Key = outputKey,
                 UploadId = uploadResponse.UploadId,
                 PartETags = uploadPartResponses
             };
@@ -185,6 +156,17 @@ namespace S3FileCompressor
             context.LogLineWithId($"Upload request completed");
 
             inputStream.Dispose();
+        }
+
+        private string GetOutputKey(string key)
+        {
+            var outputKey = key + _ZippedFileExtension;
+
+            if (this.variables.FlattenFilePaths)
+            {
+                outputKey = outputKey.Substring(outputKey.IndexOf('/') + 1);
+            }
+            return this.variables.OutputFolderPath + outputKey;
         }
 
         private static long CopyBytes(long bytesToRead, Stream fromStream, Stream toStream)

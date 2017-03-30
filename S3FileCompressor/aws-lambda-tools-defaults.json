@@ -15,5 +15,5 @@
   "function-timeout": 300,
   "function-handler": "S3FileCompressor::S3FileCompressor.Function::FunctionHandler",
   "function-role": "lambda_exec_S3FileCompressor",
-  "environment-variables": "\"FilePartReadSizeMB\"=\"100\";\"MinimumUploadSizeMB\"=\"100\""
+  "environment-variables": "\"FilePartReadSizeMB\"=\"100\";\"MinimumUploadSizeMB\"=\"100\";\"OutputBucket\"=\"\";\"OutputFolderPath\"=\"\";\"FlattenFilePaths\"=\"false\""
 }
