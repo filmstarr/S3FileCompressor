@@ -139,6 +139,10 @@ namespace S3FileCompressor
 
                     partNumber++;
                 }
+
+                //Run the garbage collector so that Lambda doesn't run out of memory for large files
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
             }
 
             //Complete multipart upload request
