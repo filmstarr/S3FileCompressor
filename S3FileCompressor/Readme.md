@@ -5,7 +5,7 @@ This project consists of:
 * aws-lambda-tools-defaults.json - default argument settings for use with Visual Studio and command line deployment tools for AWS
 * project.json - .NET Core project file with build and tool declarations for the Amazon.Lambda.Tools Nuget package
 
-The generated function handler responds to events on an Amazon S3 bucket. The handler receives the bucket and object key details in an S3Event instance and returns the content type of the object as the function output. Replace the body of this method, and parameters, to suit your needs.
+The generated function handler responds to events on an Amazon S3 bucket. The handler receives the bucket and object key details in an S3Event instance and returns the content type of the object as the function output.
 
 After deploying your function you must configure an Amazon S3 bucket as an event source to trigger your Lambda function.
 

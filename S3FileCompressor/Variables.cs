@@ -1,13 +1,10 @@
 ﻿using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Text;
 
 namespace S3FileCompressor
 {
-    public class S3FileCompressorVariables
+    public class Variables
     {
-        private const string _ZippedFileExtension = ".gz";
         private const string _FilePartReadSizeVariableName = "FilePartReadSizeMB";
         private const string _FlattenFilePathsVariableName = "FlattenFilePaths";
         private const string _MinimumUploadSizeVariableName = "MinimumUploadSizeMB";
@@ -16,6 +13,8 @@ namespace S3FileCompressor
 
         private const int DefaultFilePartReadSizeMB = 100;
         private const int DefaultMinimumUploadSizeMB = 100;
+        private const int MinimumUploadSizeMB = 5;
+        private const int MaximumUploadSizeMB = 4096;
 
         private readonly IDictionary EnvironmentVariables = Environment.GetEnvironmentVariables();
         private readonly int MB = (int)Math.Pow(2, 20);
@@ -27,7 +26,7 @@ namespace S3FileCompressor
                 var environmentVariableString = this.GetEnvironmentVariableString(_FilePartReadSizeVariableName);
                 if (int.TryParse(environmentVariableString, out int value))
                 {
-                    return Math.Max(value, 5) * MB;
+                    return Math.Min(Math.Max(value, MinimumUploadSizeMB), MaximumUploadSizeMB) * MB;
                 }
                 return DefaultFilePartReadSizeMB * MB;
             }

@@ -18,8 +18,8 @@ namespace S3FileCompressor
     {
         private const string _ZippedFileExtension = ".gz";
 
-        private readonly int MB = (int)Math.Pow(2, 20);
-        private readonly S3FileCompressorVariables variables = new S3FileCompressorVariables();
+        private readonly Variables variables = new Variables();
+        private readonly Logger logger = new Logger();
 
         private IAmazonS3 S3Client { get; set; }
 
@@ -51,6 +51,9 @@ namespace S3FileCompressor
         /// <returns></returns>
         public async Task<string> FunctionHandler(S3Event evnt, ILambdaContext context)
         {
+            //Set logging context
+            this.logger.Context = context;
+
             var s3Event = evnt.Records?[0].S3;
             if(s3Event == null)
             {
@@ -59,23 +62,18 @@ namespace S3FileCompressor
 
             try
             {
-                context.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3Event.Object.Key}");
+                logger.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3Event.Object.Key}");
                 var response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3Event.Object.Key);
                 await CompressFile(context, s3Event.Bucket.Name, s3Event.Object.Key);
                 return response.Headers.ContentType;
             }
             catch(Exception e)
             {
-                context.LogLineWithId($"Error compressing object {s3Event.Object.Key} in bucket {s3Event.Bucket.Name}");
+                logger.LogLineWithId($"Error compressing object {s3Event.Object.Key} in bucket {s3Event.Bucket.Name}");
                 context.Logger.LogLine(e.Message);
                 context.Logger.LogLine(e.StackTrace);
                 throw;
             }
-        }
-
-        private static void Log(ILambdaContext context, string message)
-        {
-            context.Logger.LogLine($"{message} RequestId: {context.AwsRequestId}");
         }
 
         private async Task CompressFile(ILambdaContext context, string inputBucketName, string inputKey)
@@ -83,14 +81,14 @@ namespace S3FileCompressor
             //Check if file is already zipped
             if (inputKey.EndsWith(_ZippedFileExtension))
             {
-                context.LogLineWithId($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete");
+                logger.LogLineWithId($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete");
                 return;
             }
 
             //Retrieve input stream
             var obj = await S3Client.GetObjectAsync(new GetObjectRequest { BucketName = inputBucketName, Key = inputKey });
             var inputStream = obj.ResponseStream;
-            context.LogLineWithId("Object response stream obtained");
+            logger.LogLineWithId("Object response stream obtained");
 
             //Initiate multipart upload
             string outputBucketName = !string.IsNullOrEmpty(this.variables.OutputBucket) ? this.variables.OutputBucket : inputBucketName;
@@ -98,7 +96,7 @@ namespace S3FileCompressor
             InitiateMultipartUploadRequest uploadRequest = new InitiateMultipartUploadRequest { BucketName = outputBucketName, Key = outputKey };
             InitiateMultipartUploadResponse uploadResponse = await S3Client.InitiateMultipartUploadAsync(uploadRequest);
             var uploadPartResponses = new List<PartETag>();
-            context.LogLineWithId($"Upload initiated. Output object: {outputBucketName}/{outputKey}");
+            logger.LogLineWithId($"Upload initiated. Output object: {outputBucketName}/{outputKey}");
 
             var partNumber = 1;
             var filePartReadSize = this.variables.FilePartReadSize;
@@ -124,7 +122,7 @@ namespace S3FileCompressor
                             }
                         }
                     }
-                    context.LogLineWithId($"Part {partNumber} read and compressed");
+                    logger.LogLineWithId($"Part {partNumber} read and compressed");
 
                     //Check to make sure that we have actually read something in before proceeding
                     if (memoryStream.Length == 0)
@@ -137,14 +135,14 @@ namespace S3FileCompressor
                     UploadPartRequest uploadPartRequest = GetUploadPartRequest(outputBucketName, outputKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
                     UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadPartRequest);
                     uploadPartResponses.Add(new PartETag { ETag = uploadPartResponse.ETag, PartNumber = partNumber });
-                    context.LogLineWithId($"Part {partNumber} uploaded.");
+                    logger.LogLineWithId($"Part {partNumber} uploaded.");
 
                     partNumber++;
                 }
             }
 
             //Complete multipart upload request
-            context.LogLineWithId($"Completing upload request");
+            logger.LogLineWithId($"Completing upload request");
             CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest
             {
                 BucketName = outputBucketName,
@@ -153,7 +151,7 @@ namespace S3FileCompressor
                 PartETags = uploadPartResponses
             };
             CompleteMultipartUploadResponse compResponse = await S3Client.CompleteMultipartUploadAsync(compRequest);
-            context.LogLineWithId($"Upload request completed");
+            logger.LogLineWithId($"Upload request completed");
 
             inputStream.Dispose();
         }
