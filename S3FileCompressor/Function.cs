@@ -60,16 +60,19 @@ namespace S3FileCompressor
                 return null;
             }
 
+            //Decode object key from event
+            var s3EventObjectKey = Uri.UnescapeDataString(s3Event.Object.Key);
+
             try
             {
-                logger.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3Event.Object.Key}");
-                var response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3Event.Object.Key);
-                await CompressFile(context, s3Event.Bucket.Name, s3Event.Object.Key);
+                logger.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3EventObjectKey}");
+                var response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3EventObjectKey);
+                await CompressFile(context, s3Event.Bucket.Name, s3EventObjectKey);
                 return response.Headers.ContentType;
             }
             catch(Exception e)
             {
-                logger.LogLineWithId($"Error compressing object {s3Event.Object.Key} in bucket {s3Event.Bucket.Name}");
+                logger.LogLineWithId($"Error compressing object {s3EventObjectKey} in bucket {s3Event.Bucket.Name}");
                 context.Logger.LogLine(e.Message);
                 context.Logger.LogLine(e.StackTrace);
                 throw;
