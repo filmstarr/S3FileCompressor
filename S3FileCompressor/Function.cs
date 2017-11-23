@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Threading.Tasks;
 
 using Amazon.Lambda.Core;
 using Amazon.Lambda.S3Events;
 using Amazon.S3;
 using Amazon.S3.Model;
-using System.IO;
-using System.IO.Compression;
 
 // Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.Json.JsonSerializer))]
@@ -61,7 +62,7 @@ namespace S3FileCompressor
             }
 
             //Decode object key from event
-            var s3EventObjectKey = Uri.UnescapeDataString(s3Event.Object.Key);
+            var s3EventObjectKey = WebUtility.UrlDecode(s3Event.Object.Key);
 
             try
             {
