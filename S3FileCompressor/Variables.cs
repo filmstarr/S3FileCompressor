@@ -10,6 +10,7 @@ namespace S3FileCompressor
         private const string _MinimumUploadSizeVariableName = "MinimumUploadSizeMB";
         private const string _OutputBucketVariableName = "OutputBucket";
         private const string _OutputFolderPathVariableName = "OutputFolderPath";
+        private const string _DeleteInitialFileAfterCompressionVariableName = "DeleteInitialFileAfterCompression";
 
         private const int DefaultFilePartReadSizeMB = 100;
         private const int DefaultMinimumUploadSizeMB = 100;
@@ -82,6 +83,20 @@ namespace S3FileCompressor
                     return outputfolderPath + "/";
                 }
                 return "";
+            }
+        }
+
+
+        public bool DeleteInitialFileAfterCompression
+        {
+            get
+            {
+                var environmentVariableString = this.GetEnvironmentVariableString(_DeleteInitialFileAfterCompressionVariableName);
+                if (bool.TryParse(environmentVariableString, out bool value))
+                {
+                    return value;
+                }
+                return false;
             }
         }
 

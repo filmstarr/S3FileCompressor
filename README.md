@@ -51,3 +51,4 @@ S3FileCompressor has two variables that can be set when deploying the function:
 * OutputBucket - the bucket to write the file out to (the output bucket must be in the same region as the source bucket). Leave this empty to write back to the same bucket.
 * OutputFolderPath - write all compressed files into this this top level folder within the bucket. Leave this empty to write back to the same folder.
 * FlattenFilePaths - flatten all file paths within the bucket, or within the output folder if it's specified, when writing back the compressed file. E.g. my.bucket/folder1/folder2/file.txt would be written to my.bucket/file.txt.gz
+* DeleteInitialFileAfterCompression - delete the initial, uncompressed file after it has been compressed.

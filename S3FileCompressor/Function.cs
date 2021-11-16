@@ -64,29 +64,52 @@ namespace S3FileCompressor
             //Decode object key from event
             var s3EventObjectKey = WebUtility.UrlDecode(s3Event.Object.Key);
 
+            //Compress object
+            GetObjectMetadataResponse response;
             try
             {
                 logger.LogLineWithId($"S3 event received. Compressing object: {s3Event.Bucket.Name}/{s3EventObjectKey}");
-                var response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3EventObjectKey);
-                await CompressFile(context, s3Event.Bucket.Name, s3EventObjectKey);
-                return response.Headers.ContentType;
+                response = await this.S3Client.GetObjectMetadataAsync(s3Event.Bucket.Name, s3EventObjectKey);
+                var fileCompressed = await this.CompressFile(context, s3Event.Bucket.Name, s3EventObjectKey);
+                if (!fileCompressed)
+                {
+                    //File wasn't compressed so exit and don't attempt to remove
+                    return response.Headers.ContentType;
+                }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 logger.LogLineWithId($"Error compressing object {s3EventObjectKey} in bucket {s3Event.Bucket.Name}");
                 context.Logger.LogLine(e.Message);
                 context.Logger.LogLine(e.StackTrace);
                 throw;
             }
+
+            //Remove file, if configured
+            try
+            {
+                if (this.variables.DeleteInitialFileAfterCompression)
+                {
+                    await this.DeleteFile(context, s3Event.Bucket.Name, s3EventObjectKey);
+                }
+            }
+            catch (Exception e)
+            {
+                logger.LogLineWithId($"Error deleting object {s3EventObjectKey} in bucket {s3Event.Bucket.Name}");
+                context.Logger.LogLine(e.Message);
+                context.Logger.LogLine(e.StackTrace);
+                throw;
+            }
+            return response.Headers.ContentType;
         }
 
-        private async Task CompressFile(ILambdaContext context, string inputBucketName, string inputKey)
+        private async Task<bool> CompressFile(ILambdaContext context, string inputBucketName, string inputKey)
         {
             //Check if file is already zipped
             if (inputKey.EndsWith(_ZippedFileExtension))
             {
                 logger.LogLineWithId($"File already appears to be zipped, file extension is: {_ZippedFileExtension}. Function complete");
-                return;
+                return false;
             }
 
             //Retrieve input stream
@@ -162,7 +185,16 @@ namespace S3FileCompressor
             logger.LogLineWithId($"Upload request completed");
 
             inputStream.Dispose();
+            return true;
         }
+
+        private async Task DeleteFile(ILambdaContext context, string inputBucketName, string inputKey)
+        {
+            logger.LogLineWithId($"Removing file: {inputBucketName}/{inputKey}");
+            await S3Client.DeleteObjectAsync(inputBucketName, inputKey);
+            logger.LogLineWithId($"File removed: {inputBucketName}/{inputKey}");
+        }
+
 
         private string GetOutputKey(string key)
         {
