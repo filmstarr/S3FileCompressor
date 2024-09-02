@@ -212,7 +212,7 @@ namespace S3FileCompressor
             var buffer = new byte[81920];
             long bytesRead = 0;
             int read;
-            while ((read = fromStream.Read(buffer, 0, (int)Math.Min((bytesToRead - bytesRead), buffer.Length))) != 0)
+            while (bytesRead < bytesToRead && (read = fromStream.Read(buffer, 0, (int)Math.Min((bytesToRead - bytesRead), buffer.Length))) != 0)
             {
                 bytesRead += read;
                 toStream.Write(buffer, 0, read);
