@@ -130,59 +130,77 @@ namespace S3FileCompressor
             var minimumUploadSize = this.variables.MinimumUploadSize;
             var streamEnded = false;
 
-            //Process input file
-            while (!streamEnded)
+            try
             {
-                using (MemoryStream memoryStream = new MemoryStream())
+                //Process input file
+                while (!streamEnded)
                 {
-                    //Read chunks of the input file, compressing as we go, until we hit the minimum upload size or the end of the stream
-                    using (GZipStream zipStream = new GZipStream(memoryStream, CompressionLevel.Fastest, true))
+                    using (MemoryStream memoryStream = new MemoryStream())
                     {
-                        while (memoryStream.Length < minimumUploadSize)
+                        //Read chunks of the input file, compressing as we go, until we hit the minimum upload size or the end of the stream
+                        using (GZipStream zipStream = new GZipStream(memoryStream, CompressionLevel.Fastest, true))
                         {
-                            //Copy a set number of bytes from the input stream to the compressed memory stream
-                            var bytesCopied = CopyBytes(filePartReadSize, inputStream, zipStream);
-                            if (bytesCopied == 0)
+                            while (memoryStream.Length < minimumUploadSize)
                             {
-                                streamEnded = true;
-                                break;
+                                //Copy a set number of bytes from the input stream to the compressed memory stream
+                                var bytesCopied = CopyBytes(filePartReadSize, inputStream, zipStream);
+                                if (bytesCopied == 0)
+                                {
+                                    streamEnded = true;
+                                    break;
+                                }
                             }
                         }
+                        logger.LogLineWithId($"Part {partNumber} read and compressed");
+
+                        //Check to make sure that we have actually read something in before proceeding
+                        if (memoryStream.Length == 0)
+                        {
+                            break;
+                        }
+
+                        //Upload memory stream to S3
+                        memoryStream.Position = 0;
+                        UploadPartRequest uploadPartRequest = GetUploadPartRequest(outputBucketName, outputKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
+                        UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadPartRequest);
+                        uploadPartResponses.Add(new PartETag { ETag = uploadPartResponse.ETag, PartNumber = partNumber });
+                        logger.LogLineWithId($"Part {partNumber} uploaded.");
+
+                        partNumber++;
                     }
-                    logger.LogLineWithId($"Part {partNumber} read and compressed");
 
-                    //Check to make sure that we have actually read something in before proceeding
-                    if (memoryStream.Length == 0)
-                    {
-                        break;
-                    }
-
-                    //Upload memory stream to S3
-                    memoryStream.Position = 0;
-                    UploadPartRequest uploadPartRequest = GetUploadPartRequest(outputBucketName, outputKey, uploadResponse.UploadId, partNumber, streamEnded, memoryStream);
-                    UploadPartResponse uploadPartResponse = await S3Client.UploadPartAsync(uploadPartRequest);
-                    uploadPartResponses.Add(new PartETag { ETag = uploadPartResponse.ETag, PartNumber = partNumber });
-                    logger.LogLineWithId($"Part {partNumber} uploaded.");
-
-                    partNumber++;
+                    //Run the garbage collector so that Lambda doesn't run out of memory for large files
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
                 }
 
-                //Run the garbage collector so that Lambda doesn't run out of memory for large files
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-            }
+                //S3 rejects a multipart upload with no parts, so abort if the input was empty
+                if (uploadPartResponses.Count == 0)
+                {
+                    logger.LogLineWithId("Input object is empty, nothing to compress. Aborting upload");
+                    await S3Client.AbortMultipartUploadAsync(outputBucketName, outputKey, uploadResponse.UploadId);
+                    inputStream.Dispose();
+                    return false;
+                }
 
-            //Complete multipart upload request
-            logger.LogLineWithId($"Completing upload request");
-            CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest
+                //Complete multipart upload request
+                logger.LogLineWithId($"Completing upload request");
+                CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest
+                {
+                    BucketName = outputBucketName,
+                    Key = outputKey,
+                    UploadId = uploadResponse.UploadId,
+                    PartETags = uploadPartResponses
+                };
+                CompleteMultipartUploadResponse compResponse = await S3Client.CompleteMultipartUploadAsync(compRequest);
+                logger.LogLineWithId($"Upload request completed");
+            }
+            catch
             {
-                BucketName = outputBucketName,
-                Key = outputKey,
-                UploadId = uploadResponse.UploadId,
-                PartETags = uploadPartResponses
-            };
-            CompleteMultipartUploadResponse compResponse = await S3Client.CompleteMultipartUploadAsync(compRequest);
-            logger.LogLineWithId($"Upload request completed");
+                //Abort so that incomplete multipart uploads aren't left behind
+                await S3Client.AbortMultipartUploadAsync(outputBucketName, outputKey, uploadResponse.UploadId);
+                throw;
+            }
 
             inputStream.Dispose();
             return true;
